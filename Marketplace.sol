@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.27;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol"; // импортируем контракт openzeppelin ERC721 для того что бы не строить велосепед заново
 import "@openzeppelin/contracts/utils/Strings.sol"; // импортируем библиотеку openzeppelin Strings для удобной конкатенации строк и чисел (это нам поможет в создании URI)
@@ -13,23 +13,26 @@ contract Marketpalce is ERC721 { // импортируем
   mapping ( uint256 tokenID => string tokenURI ) private tokenURIs; // хранение URI для каждого NFT
   mapping ( uint256 tokenID => uint256 price ) private prices;
 
-  error ZeroPrice(); // пользователь указал нулевую цену при создании токена
-  error NotEnoughMoney(); // пользователь отправил меньше эфира, чем было указанно  
+
+  event CreateNFT(uint256 indexed tokenId, string indexed  tokenURI, uint256 indexed price); // событие на создание NFT
+
+
+  error ZeroPrice(uint price); // пользователь указал нулевую цену при создании токена
+  error NotEnoughMoney(uint amount); // пользователь отправил меньше эфира, чем было указанно  
   error FailedTransaction(); // передача денег юзеру закончилась ошибкой
   
-  error TokenNotExsisit(); // токена, по такому id - не существует 
-  error TokenAlredyExsisit(); // токен уже существует
+  error TokenNotExsisit(uint tokenId); // токена, по такому id - не существует 
+//   error TokenAlredyExsisit(uint tokenId); // токен уже существует
   
 
   address public owner; // владелец контаркта
 
   modifier tokenNotExsist (uint _tokenId) { // проверка на то что токен вообще существует
-    if (ownerOf(_tokenId) == address(0)) revert TokenNotExsisit();
+    if (ownerOf(_tokenId) == address(0)) revert TokenNotExsisit(_tokenId);
     _;
   }
 
-  event CreateNFT(uint256 indexed tokenId, string indexed  tokenURI, uint256 indexed price); // событие на создание NFT
-
+  
   function _setTokenURI(uint _tokenId, string calldata _tokenURI) internal virtual tokenNotExsist(_tokenId){ // устанавливаем URI для NFT. Функция принимает id токена и сам URI.
   tokenURIs[_tokenId] = _tokenURI; 
   }
@@ -47,7 +50,6 @@ contract Marketpalce is ERC721 { // импортируем
     string memory baseURI = _baseURI();
 
     return bytes(baseURI).length > 0 ? string.concat(baseURI, _tokenId.toString()) : ""; 
-
   }
 
 
@@ -60,11 +62,10 @@ contract Marketpalce is ERC721 { // импортируем
   
   function createNFT(string calldata _tokenURI, uint256 _price) public payable { 
    uint256 newTokenId = tokenIds;
-   if (ownerOf(newTokenId) != address(0)) revert TokenAlredyExsisit();
-   require(msg.value >= _price, NotEnoughMoney());
-   require(_price > 0, ZeroPrice());
+   require(msg.value >= _price, NotEnoughMoney(msg.value));
+   require(_price > 0, ZeroPrice(_price));
    
-   _safeMint(msg.sender, newTokenId);
+   _mint(msg.sender, newTokenId);
    _setTokenURI(newTokenId, _tokenURI);
    
    prices[newTokenId] = _price;
@@ -81,6 +82,8 @@ contract Marketpalce is ERC721 { // импортируем
     require(success, FailedTransaction());
    }
   }
+
+  // вскоре везде будут поставленны комментарии в стиле "Документационные комментарии"
 
 
 }
