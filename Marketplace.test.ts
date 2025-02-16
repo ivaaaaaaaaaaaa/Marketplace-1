@@ -16,38 +16,40 @@ describe("Marketplace contract", function(){
 
   it("check deploy contract", async function () {
     expect(await marketplace.owner()).to.eq(owner.address);
-    expect(Number(await marketplace.tokenIds())).to.eq(1);
-    
+    expect(await marketplace.tokenIds()).to.eq(1n);
+
     const contractAddress = await marketplace.target;
     expect(await marketplace.ownerOf(0)).to.eq(contractAddress);
-    expect(Number( await marketplace.balanceOf(contractAddress) )).to.eq(1);
+    expect(await marketplace.balanceOf(contractAddress)).to.eq(1n);
   })  
 
   it("success create NFT and normal URI", async function () {
     const price = ethers.parseEther("0.1");
-    const amount = ethers.parseEther("5"); // специально передаем больше эфиров что бы протестировать то что при переплате - сдача возвращается
+    const amount = ethers.parseEther("5");
     const contractBalanceBefore = await ethers.provider.getBalance(marketplace);
     const tokenId = await marketplace.tokenIds(); // 1
     
     await marketplace.createNFT(tokenURI, price, {value: amount});
-    
+
     const URI = await marketplace.tokenURI(tokenId);
     console.log("Defoult URI: ",URI);
     
     const contractBalanceAfter = await ethers.provider.getBalance(marketplace);
-    expect(Number(await marketplace.balanceOf(owner.address))).to.eq(1);
-    expect(Number(await marketplace.tokenIds())).to.eq(2);
+    expect(await marketplace.balanceOf(owner.address)).to.eq(1n);
+    expect(await marketplace.tokenIds()).to.eq(2n);
     expect(contractBalanceAfter).to.eq(contractBalanceBefore + price);
     expect(URI).to.eq(tokenURI);
   })
 
   it("success create zero URI", async function () {
     const price = ethers.parseEther("0.1");
-    const amount = ethers.parseEther("5"); // тут тоже самое
+    const amount = ethers.parseEther("5");
     const zeroURI = "";
     await marketplace.createNFT(zeroURI, price, {value: amount});
     const emptyURI = await marketplace.tokenURI(1);
     console.log("Empty URI: ",emptyURI);
   })
-  
+
+  it
+
 })
