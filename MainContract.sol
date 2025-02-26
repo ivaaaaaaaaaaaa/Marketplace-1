@@ -2,161 +2,307 @@
 
 pragma solidity ^0.8.0;
 
-
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Errors} from "./MainContractErrors.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-contract ERC721NewCollection is ERC721 {
+/**
+ * @title contract that create new NFR collection.
+ * @notice this contract use in MainContract.
+ * @notice in the MainContract we use mint function when user buys product(-s).
+ */
 
-        uint256 private tokenCounter;
-        string private baseURI;
-        address public mainContract;
-        address private creator;
-        address private mPcreator;
-        
-        constructor(
-            string memory _name,
-            string memory _symbol,
-            string memory _collectionURI,
-            address _creator,
-            address _mPcreator,
-            address _mainContract
-        ) ERC721(_name, _symbol) {
-            creator = _creator;
-            mPcreator = _mPcreator;
-            baseURI = _collectionURI;
-            tokenCounter = 1;
-            mainContract = _mainContract;
+contract ERC721NewCollection is ERC721, ReentrancyGuard {
+    uint256 private tokenCounter;
+    string private baseURI;
+    address public mainContract;
+    address private creator;
+    address private platformOwner;
+
+    /**
+    * @notice Constructor for the ERC721NewCollection contract.
+    * @param _name The name of the NFT collection.
+    * @param _symbol The symbol of the NFT collection.
+    * @param _collectionURI The base URI for the NFT metadata.
+    * @param _creator The address that created the collection.
+    * @param _platformOwner the owner mainContract address.
+    * @param _mainContract The address of the main contract that can mint NFTs.
+    */
+
+    constructor(
+        string memory _name,
+        string memory _symbol,
+        string memory _collectionURI,
+        address _creator,
+        address _platformOwner,
+        address _mainContract
+    ) ERC721(_name, _symbol) {
+        require(_creator != address(0), "Creator cannot be zero address");
+        require(
+            _platformOwner != address(0),
+            "Marketplace creator cannot be zero address"
+        );
+        require(
+            _mainContract != address(0),
+            "Main contract cannot be zero address"
+        );
+
+        creator = _creator;
+        platformOwner = _platformOwner;
+        baseURI = _collectionURI;
+        tokenCounter;
+        mainContract = _mainContract;
     }
 
-
+    /// @notice modifier for collection's owner and for main contract owner.
     modifier onlyCreator() {
-        require(msg.sender == mPcreator || msg.sender == creator,"Only creator can call this function");
+        require(
+            msg.sender == platformOwner || msg.sender == creator,
+            "Only creator can call this function"
+        );
         _;
     }
-
+    /// @notice modifier for mainContract address.
     modifier onlyMainContract() {
-        require(msg.sender == mainContract, "Only mainContract can call this function");
+        require(
+            msg.sender == mainContract,
+            "Only mainContract can call this function"
+        );
         _;
     }
 
-    function mint(address _to) external onlyMainContract {
+    /// @notice mints NFT to the buyer address, when he reedemed a promo code.
+    /// @param _to the buyer address to mint the NFT to.
+    function mint(address _to) external onlyMainContract nonReentrant {
         uint256 newTokenId = tokenCounter;
         _safeMint(_to, newTokenId);
         tokenCounter++;
     }
 
-    function setApprovalForAll(address operator, bool approved) public override onlyCreator{
+    function setApprovalForAll(address operator, bool approved)
+        public
+        override
+        onlyCreator
+    {
         super.setApprovalForAll(operator, approved);
     }
 
+    /// @notice returns the base URI for the contract.
     function _baseURI() internal view override returns (string memory) {
         return baseURI;
     }
 
-    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+    /// @notice returns the URI for a given token ID.
+    /// @param tokenId the Id of the token
+    function tokenURI(uint256 tokenId)
+        public
+        view
+        override
+        returns (string memory)
+    {
         return string(abi.encodePacked(baseURI, Strings.toString(tokenId)));
     }
 }
 
-contract MainContract is Ownable, Errors {
+    /**
+    * @title Main contract for managing NFT collections and purchases.
+    * @author Pynex.
+    * @author ivaaaaaaaaaaaa.
+    * @notice This contract handles the creation of new NFT collections,
+    *         manages product purchases, and tracks promotional codes.
+    */
 
-    uint public idCounter = 1;
-    uint private nonce = 0;
+contract MainContract is Ownable, Errors, ReentrancyGuard {
+
+    //counter for unique collection IDs.
+    uint256 public idCounter = 1;
+    //amount of market place commission (in %).
+    uint256 public immutable commission = 5;
+    //nonce to generate unique codes
+    uint256 private nonce = 0;
+    uint256 private constant MAX_NAME_LENGTH = 64;
+    uint256 private constant MAX_SYMBOL_LENGTH = 8;
 
     /// @notice _id => CollectionInfo (name,symbol and more)
-    mapping(uint => CollectionInfo) public collections;
+    mapping(uint256 => CollectionInfo) public collections;
     /// @notice _user => user's codes
-    mapping (address => uint) private amountOfCodes;
+    mapping(address => uint256) private amountOfCodes;
     /// @notice _user => promoCode
-    mapping (address => bytes8[]) private uniqPromoForUser;
-    
+    //!!!change to mapping (address => mapping(uint (collection id) => bytes8[]))
+    mapping(address => bytes8[]) private uniqPromoForUser;
+
+    /**
+    * @dev Structure containing information about an NFT collection.
+    * @param name The name of the collection.
+    * @param symbol The symbol of the collection.
+    * @param collectionOwner The address of the collection owner.
+    * @param collectionURI The base URI for the collection's metadata.
+    * @param price The price of each NFT in the collection.
+    * @param quantityInStock The number of NFTs currently available in the collection.
+    * @param collectionAddress The address of the ERC721 contract for the collection.
+    * @param id The unique ID of the collection.
+    */
 
     struct CollectionInfo {
         string name;
         string symbol;
         address collectionOwner;
         string collectionURI;
-        uint price;
-        uint quantityInStock;
+        uint256 price;
+        uint256 quantityInStock;
         address collectionAddress;
-        uint id;
-    }  
+        uint256 id;
+    }
 
-    event collectionCreated (
+    /**
+    * @dev Event emitted when a new NFT collection is created.
+    * @param newCollectionAddress The address of the newly created ERC721 contract.
+    * @param collectionOwner The address of the collection owner.
+    * @param collectionURI The base URI for the collection's metadata.
+    * @param collectionName The name of the collection.
+    * @param price The price of each NFT in the collection.
+    * @param id The unique ID of the collection.
+    */
+    event collectionCreated(
         address newCollectionAddress,
         address collectionOwner,
         string collectionURI,
         string collectionName,
-        uint price,
-        uint id
+        uint256 price,
+        uint256 id
     );
+
+    /**
+    * @dev Event emitted when a product (NFT) is purchased.
+    * @param buyer The address of the buyer.
+    * @param collectionAddress The address of the ERC721 contract.
+    * @param price The price of the purchased NFT.
+    * @param cQuantity The quantity of NFTs purchased.
+    */
 
     event productPurchased(
         address indexed buyer,
         address indexed collectionAddress,
         uint256 price,
-        uint cQuantity
+        uint256 cQuantity
     );
+
+    /**
+    * @dev Event emitted when a promotional code is successfully used.
+    * @param user The address of the user who used the promo code.
+    * @param collectionAddress The address of the ERC721 contract where the promo code was used.
+    */
 
     event promoCodeSuccessfullyUsed(
         address indexed user,
         address indexed collectionAddress
     );
-    
-    
-    constructor(address initialOwner) Ownable(initialOwner) {}
+
+    /**
+    * @dev Constructor for the MainContract.
+    * @param initialOwner The address of the initial owner of the contract.
+    * @param _commission The commission percentage for the platform.
+    */
+
+    constructor(address initialOwner, uint256 _commission) Ownable(initialOwner) {
+        require(_commission <= 100, "Commission cannot exceed 100%");
+        commission = _commission;
+    }
 
     //                                                     ------------------------------------------
     //                                                     -           Main Functionality           -
     //                                                     ------------------------------------------
-                                                
 
-    function buy (uint _id, uint256 _quantity) external payable {
+    //add batchBuy Function
 
-        uint price = collections[_id].price;
-        uint cQuantity = collections[_id].quantityInStock;
+    /**
+    * @dev Allows a user to buy a specified quantity of NFTs from a collection.
+    * @param _id The ID of the collection to buy from.
+    * @param _quantity The quantity of NFTs to buy.
+    */
+    function buy(uint256 _id, uint256 _quantity) external payable nonReentrant {
+        require(collections[_id].collectionAddress != address(0), incorrectId());
+
+        // Get price and quantity.
+        uint256 price = collections[_id].price;
+        uint256 cQuantity = collections[_id].quantityInStock;
         require(cQuantity >= _quantity, incorrectQuantity());
+
+        // Calculate total price and commission.
         uint256 totalPrice = price * _quantity;
         require(msg.value >= totalPrice, notEnoughFunds());
+        uint256 fundsForSeller = totalPrice - (totalPrice * commission) / 100;
+        uint256 amountOfCommission = totalPrice - fundsForSeller;
 
-        for(uint i = 0; i < _quantity; i++) {
+        // Generate promo code(-s) and push them for user.
+        for (uint256 i = 0; i < _quantity; i++) {
             bytes8 promoCode = _generatePromoCode();
             uniqPromoForUser[msg.sender].push(promoCode);
         }
+        // Increment quantity of codes for user.
         amountOfCodes[msg.sender] += _quantity;
 
-
-        address _collectionAddress = getAddressById(_id);
-            
+        // Update quantity in stock.
         _updateQuantity(_id, cQuantity - _quantity);
+ 
+        // Transfer funds for seller and comission for owner.
+        payable(getOwnerByCollectionId(_id)).transfer(fundsForSeller);
+        payable(owner()).transfer(amountOfCommission);
 
-        payable(getOwnerByCollectionId(_id)).transfer(totalPrice);
-
-        if(msg.value > totalPrice) {
+        // Refund excess funds to the buyer (if any).
+        if (msg.value > totalPrice) {
             payable(msg.sender).transfer(msg.value - totalPrice);
         }
 
-         emit productPurchased(
-            msg.sender,
-            _collectionAddress,
-            price,
-            _quantity
-        );
+        // Emit event.
+        address _collectionAddress = getAddressById(_id);
+        emit productPurchased(msg.sender, _collectionAddress, price, _quantity);
     }
 
-    function createCollection(string calldata _name, string calldata _symbol, string calldata _collectionURI, uint _price, uint _quantityInStock) external payable {
-        require(bytes(_name).length > 0 && bytes(_name).length < 64, incorrectNameLength());
-        require(bytes(_symbol).length > 0 && bytes(_symbol).length < 8 , incorrectSymbolLength());
+    /**
+    * @dev Creates a new NFT collection. All users can use this function.
+    * @param _name The name of the collection.
+    * @param _symbol The symbol of the collection.
+    * @param _collectionURI The base URI for the collection's metadata.
+    * @param _price The price of each NFT in the collection.
+    * @param _quantityInStock The number of NFTs initially available in the collection.
+    */
+    function createCollection(
+        string calldata _name,
+        string calldata _symbol,
+        string calldata _collectionURI,
+        uint256 _price,
+        uint256 _quantityInStock
+    ) external payable nonReentrant {
+        // Check input parameters.
+        require(
+            bytes(_name).length > 0 && bytes(_name).length < MAX_NAME_LENGTH,
+            incorrectNameLength()
+        );
+        require(
+            bytes(_symbol).length > 0 && bytes(_symbol).length < MAX_SYMBOL_LENGTH,
+            incorrectSymbolLength()
+        );
         require(bytes(_collectionURI).length > 0, incorrectURI());
         require(_price > 0, incorrectPrice());
 
-        ERC721NewCollection collection = new ERC721NewCollection(_name, _symbol, _collectionURI, msg.sender, owner(), address(this));
+        // Deploy a new ERC721NewCollection contract.
+        ERC721NewCollection collection = new ERC721NewCollection(
+            _name,
+            _symbol,
+            _collectionURI,
+            msg.sender,
+            owner(),
+            address(this)
+        );
         address collectionAddress = address(collection);
 
+        
+        require(collectionAddress != address(0), FailedToDeployContract());
 
+        // Save collection info in the collections mapping.
         CollectionInfo memory newCollection = CollectionInfo({
             name: _name,
             symbol: _symbol,
@@ -168,66 +314,134 @@ contract MainContract is Ownable, Errors {
             id: idCounter
         });
         collections[idCounter] = newCollection;
-        idCounter++;
 
-        emit collectionCreated(collectionAddress, msg.sender, _collectionURI, _name, _price, idCounter);
+        // Emit event.
+        emit collectionCreated(
+            collectionAddress,
+            msg.sender,
+            _collectionURI,
+            _name,
+            _price,
+            idCounter
+        );
+
+        // Increment after emitting the event
+        idCounter++;
     }
 
-    function reedemCode (uint _id, bytes8 _promoCode) public payable {
+    /**
+    * @dev Allows a user to redeem a promo code and mint an NFT.
+    * @param _id The ID of the collection.
+    * @param _promoCode The promo code to redeem.
+    */
+    function reedemCode (uint256 _id, bytes8 _promoCode) public payable {
+        require(collections[_id].collectionAddress != address(0), incorrectId());
+
+        // Get collection contract.
         address _collectionAddress = getAddressById(_id);
         ERC721NewCollection collection = ERC721NewCollection(_collectionAddress);
-        require(address(this) == collection.mainContract(), incorrectCollectionAddress());
+
+        // Check if mainContract is valid.
+        require(
+            address(this) == collection.mainContract(),
+            incorrectCollectionAddress()
+        );
+        // Check if promo code is valud.
         require(_isPromoValid(_promoCode) == true, invalidPromoCode());
-        
+
+        // Mint the NFT.
         collection.mint(msg.sender);
 
+        // Delete promo code for user.
         _deletePromoCode(msg.sender, _promoCode);
-        amountOfCodes[msg.sender] -=1;
+        amountOfCodes[msg.sender] -= 1;
 
-        emit promoCodeSuccessfullyUsed(
-            msg.sender,
-            _collectionAddress
-        );
+        // Emit event.
+        emit promoCodeSuccessfullyUsed(msg.sender, _collectionAddress);
     }
 
     //                                                     ------------------------------------------
     //                                                     -           Get  functions               -
     //                                                     ------------------------------------------
 
-    function getAddressById(uint _id) public view returns(address) {
+    /**
+    * @notice Returns the address of the collection contract by its ID.
+    * @param _id The ID of the collection.
+    * @return The address of the collection contract.
+    */
+    function getAddressById(uint256 _id) public view returns (address) {
         require(collections[_id].id != 0, collectionNotFound());
-        return(collections[_id].collectionAddress);
+        return (collections[_id].collectionAddress);
     }
 
-    function getPrice (uint _id) public view returns (uint) {
+    /**
+    * @notice Returns the price of an NFT in a collection by the collection's ID.
+    * @param _id The ID of the collection.
+    * @return The price of the NFT.
+    */
+    function getPrice(uint256 _id) public view returns (uint256) {
         require(collections[_id].id != 0, collectionNotFound());
-        return(collections[_id].price);
+        return (collections[_id].price);
     }
 
-    function getQuantity (uint _id) public view returns (uint) {
+    /**
+    * @notice Returns the quantity of NFTs in stock for a collection by the collection's ID.
+    * @param _id The ID of the collection.
+    * @return The quantity of NFTs in stock.
+    */
+    function getQuantity(uint256 _id) public view returns (uint256) {
         require(collections[_id].id != 0, collectionNotFound());
-        return(collections[_id].quantityInStock);
+        return (collections[_id].quantityInStock);
     }
 
-    function getPromo (uint _indexOfPromo, address _user) public onlyOwner view returns(bytes8) {
-        require(uniqPromoForUser[_user][_indexOfPromo] != bytes8(0), incorrectIndex());
+    /**
+    * @notice Returns a promo code for a user at a specific index. Only callable by the owner.
+    * @dev onlyOwner modifier.
+    * @param _indexOfPromo The index of the promo code.
+    * @param _user The address of the user.
+    * @return The promo code.
+    */
+    function getPromo(uint256 _indexOfPromo, address _user)
+        public
+        view
+        onlyOwner
+        returns (bytes8)
+    {
+        require(_user != address(0), incorrectAddress());
+        require(
+            uniqPromoForUser[_user][_indexOfPromo] != bytes8(0),
+            incorrectIndex()
+        );
         return (uniqPromoForUser[_user][_indexOfPromo]);
     }
 
-    function getOwnerByCollectionId (uint _id) public view returns(address){
-        require(collections[_id].collectionAddress != address(0), collectionNotFound());
+    /**
+    * @dev Returns the owner of a collection by the collection's ID.
+    * @param _id The ID of the collection.
+    * @return The address of the collection owner.
+    */
+    function getOwnerByCollectionId(uint256 _id) public view returns (address) {
+        require(
+            collections[_id].collectionAddress != address(0),
+            collectionNotFound()
+        );
         return collections[_id].collectionOwner;
     }
 
     //                                                     ------------------------------------------
     //                                                     -           Service functions            -
     //                                                     ------------------------------------------
-    
-    function _findIndexByUserAddress(address _user, bytes8 _promoCode) internal view returns (uint, bool) {
+
+    function _findIndexByUserAddress(address _user, bytes8 _promoCode)
+        internal
+        view
+        returns (uint256, bool)
+    {
+        require(_user != address(0), incorrectAddress());
         bytes8[] storage promoCodes = uniqPromoForUser[_user];
-        for (uint i = 0; i < promoCodes.length ; i++) {
-            if(promoCodes[i] == _promoCode) {
-                return (i,true);
+        for (uint256 i = 0; i < promoCodes.length; i++) {
+            if (promoCodes[i] == _promoCode) {
+                return (i, true);
             }
         }
         return (0, false);
@@ -235,24 +449,31 @@ contract MainContract is Ownable, Errors {
 
     function _deletePromoCode(address _user, bytes8 _promoCode) internal {
         require(_user != address(0), incorrectAddress());
-        (uint _index, bool status) = _findIndexByUserAddress(_user, _promoCode);
+        (uint256 _index, bool status) = _findIndexByUserAddress(
+            _user,
+            _promoCode
+        );
 
-        if(!status) {
+        if (!status) {
             revert promoCodeNotFound();
         }
 
-        uniqPromoForUser[_user][_index] = uniqPromoForUser[_user][uniqPromoForUser[_user].length - 1];
+        uniqPromoForUser[_user][_index] = uniqPromoForUser[_user][
+            uniqPromoForUser[_user].length - 1
+        ];
         uniqPromoForUser[_user].pop();
     }
 
     function _generatePromoCode() internal returns (bytes8) {
-      bytes8 random = bytes8(keccak256(abi.encode(block.timestamp,nonce ,tx.origin,nonce)));
-      nonce++;
-      return bytes8(random);
+        bytes8 random = bytes8(
+            keccak256(abi.encode(block.timestamp, nonce, tx.origin, nonce))
+        );
+        nonce++;
+        return bytes8(random);
     }
 
-    function _isPromoValid (bytes8 _promoCode) internal view returns (bool) {
-        for (uint i = 0; i < uniqPromoForUser[msg.sender].length; i++) {
+    function _isPromoValid(bytes8 _promoCode) internal view returns (bool) {
+        for (uint256 i = 0; i < uniqPromoForUser[msg.sender].length; i++) {
             if (uniqPromoForUser[msg.sender][i] == _promoCode) {
                 return true;
             }
@@ -262,11 +483,12 @@ contract MainContract is Ownable, Errors {
 
     function _updatePrice(uint256 _id, uint256 _newPrice) private {
         require(collections[_id].id != 0, collectionNotFound());
-        collections[_id].price =  _newPrice;
+        collections[_id].price = _newPrice;
     }
 
-    function _updateQuantity(uint _id, uint _newQuantity) private {
+    function _updateQuantity(uint256 _id, uint256 _newQuantity) private {
         require(collections[_id].id != 0, collectionNotFound());
         collections[_id].quantityInStock = _newQuantity;
     }
 }
+
