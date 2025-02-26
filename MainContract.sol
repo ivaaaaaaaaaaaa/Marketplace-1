@@ -11,9 +11,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.
 /**
  * @title contract that create new NFR collection.
  * @notice this contract use in MainContract.
- * @notice in the MainContract we use mint function when user buys product(-s).
+ * @dev in the MainContract we use mint function when user buys product(-s).
  */
-
 contract ERC721NewCollection is ERC721, ReentrancyGuard {
     uint256 private tokenCounter;
     string private baseURI;
@@ -22,7 +21,7 @@ contract ERC721NewCollection is ERC721, ReentrancyGuard {
     address private platformOwner;
 
     /**
-    * @notice Constructor for the ERC721NewCollection contract.
+    * @dev Constructor for the ERC721NewCollection contract.
     * @param _name The name of the NFT collection.
     * @param _symbol The symbol of the NFT collection.
     * @param _collectionURI The base URI for the NFT metadata.
@@ -30,7 +29,6 @@ contract ERC721NewCollection is ERC721, ReentrancyGuard {
     * @param _platformOwner the owner mainContract address.
     * @param _mainContract The address of the main contract that can mint NFTs.
     */
-
     constructor(
         string memory _name,
         string memory _symbol,
@@ -73,7 +71,7 @@ contract ERC721NewCollection is ERC721, ReentrancyGuard {
         _;
     }
 
-    /// @notice mints NFT to the buyer address, when he reedemed a promo code.
+    /// @dev mints NFT to the buyer address, when he reedemed a promo code.
     /// @param _to the buyer address to mint the NFT to.
     function mint(address _to) external onlyMainContract nonReentrant {
         uint256 newTokenId = tokenCounter;
@@ -89,12 +87,12 @@ contract ERC721NewCollection is ERC721, ReentrancyGuard {
         super.setApprovalForAll(operator, approved);
     }
 
-    /// @notice returns the base URI for the contract.
+    /// @dev returns the base URI for the contract.
     function _baseURI() internal view override returns (string memory) {
         return baseURI;
     }
 
-    /// @notice returns the URI for a given token ID.
+    /// @dev returns the URI for a given token ID.
     /// @param tokenId the Id of the token
     function tokenURI(uint256 tokenId)
         public
@@ -144,7 +142,6 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @param collectionAddress The address of the ERC721 contract for the collection.
     * @param id The unique ID of the collection.
     */
-
     struct CollectionInfo {
         string name;
         string symbol;
@@ -181,7 +178,6 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @param price The price of the purchased NFT.
     * @param cQuantity The quantity of NFTs purchased.
     */
-
     event productPurchased(
         address indexed buyer,
         address indexed collectionAddress,
@@ -194,7 +190,6 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @param user The address of the user who used the promo code.
     * @param collectionAddress The address of the ERC721 contract where the promo code was used.
     */
-
     event promoCodeSuccessfullyUsed(
         address indexed user,
         address indexed collectionAddress
@@ -205,7 +200,6 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @param initialOwner The address of the initial owner of the contract.
     * @param _commission The commission percentage for the platform.
     */
-
     constructor(address initialOwner, uint256 _commission) Ownable(initialOwner) {
         require(_commission <= 100, "Commission cannot exceed 100%");
         commission = _commission;
@@ -365,37 +359,37 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     //                                                     ------------------------------------------
 
     /**
-    * @notice Returns the address of the collection contract by its ID.
+    * @dev Returns the address of the collection contract by its ID.
     * @param _id The ID of the collection.
     * @return The address of the collection contract.
     */
     function getAddressById(uint256 _id) public view returns (address) {
-        require(collections[_id].id != 0, collectionNotFound());
+        require(collections[_id].collectionAddress != address(0), collectionNotFound());
         return (collections[_id].collectionAddress);
     }
 
     /**
-    * @notice Returns the price of an NFT in a collection by the collection's ID.
+    * @dev Returns the price of an NFT in a collection by the collection's ID.
     * @param _id The ID of the collection.
     * @return The price of the NFT.
     */
     function getPrice(uint256 _id) public view returns (uint256) {
-        require(collections[_id].id != 0, collectionNotFound());
+        require(collections[_id].collectionAddress != address(0), collectionNotFound());
         return (collections[_id].price);
     }
 
     /**
-    * @notice Returns the quantity of NFTs in stock for a collection by the collection's ID.
+    * @dev Returns the quantity of NFTs in stock for a collection by the collection's ID.
     * @param _id The ID of the collection.
     * @return The quantity of NFTs in stock.
     */
     function getQuantity(uint256 _id) public view returns (uint256) {
-        require(collections[_id].id != 0, collectionNotFound());
+        require(collections[_id].collectionAddress != address(0), collectionNotFound());
         return (collections[_id].quantityInStock);
     }
 
     /**
-    * @notice Returns a promo code for a user at a specific index. Only callable by the owner.
+    * @dev Returns a promo code for a user at a specific index. Only callable by the owner.
     * @dev onlyOwner modifier.
     * @param _indexOfPromo The index of the promo code.
     * @param _user The address of the user.
@@ -421,10 +415,7 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @return The address of the collection owner.
     */
     function getOwnerByCollectionId(uint256 _id) public view returns (address) {
-        require(
-            collections[_id].collectionAddress != address(0),
-            collectionNotFound()
-        );
+        require(collections[_id].collectionAddress != address(0),collectionNotFound());
         return collections[_id].collectionOwner;
     }
 
@@ -432,12 +423,17 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     //                                                     -           Service functions            -
     //                                                     ------------------------------------------
 
+     /**
+     * @dev Finds the index of a promo code for a user.
+     * @param _user The address of the user.
+     * @param _promoCode The promo code to find.
+     * @return The index of the promo code and a boolean indicating if the promo code was found.
+     */
     function _findIndexByUserAddress(address _user, bytes8 _promoCode)
         internal
         view
         returns (uint256, bool)
     {
-        require(_user != address(0), incorrectAddress());
         bytes8[] storage promoCodes = uniqPromoForUser[_user];
         for (uint256 i = 0; i < promoCodes.length; i++) {
             if (promoCodes[i] == _promoCode) {
@@ -447,6 +443,11 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
         return (0, false);
     }
 
+    /**
+     * @dev Deletes a promo code for a user.
+     * @param _user The address of the user.
+     * @param _promoCode The promo code to delete.
+     */
     function _deletePromoCode(address _user, bytes8 _promoCode) internal {
         require(_user != address(0), incorrectAddress());
         (uint256 _index, bool status) = _findIndexByUserAddress(
@@ -464,6 +465,10 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
         uniqPromoForUser[_user].pop();
     }
 
+    /**
+     * @dev Generates a new promo code.
+     * @return The generated promo code.
+     */
     function _generatePromoCode() internal returns (bytes8) {
         bytes8 random = bytes8(
             keccak256(abi.encode(block.timestamp, nonce, tx.origin, nonce))
@@ -472,6 +477,11 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
         return bytes8(random);
     }
 
+    /**
+     * @dev Checks if a promo code is valid for the sender.
+     * @param _promoCode The promo code to check.
+     * @return True if the promo code is valid, false otherwise.
+     */
     function _isPromoValid(bytes8 _promoCode) internal view returns (bool) {
         for (uint256 i = 0; i < uniqPromoForUser[msg.sender].length; i++) {
             if (uniqPromoForUser[msg.sender][i] == _promoCode) {
@@ -481,14 +491,21 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
         return false;
     }
 
+    /**
+     * @dev Updates the price of an NFT in a collection.
+     * @param _id The ID of the collection.
+     * @param _newPrice The new price of the NFT.
+     */
     function _updatePrice(uint256 _id, uint256 _newPrice) private {
-        require(collections[_id].id != 0, collectionNotFound());
         collections[_id].price = _newPrice;
     }
 
+    /**
+     * @dev Updates the quantity of NFTs in stock for a collection.
+     * @param _id The ID of the collection.
+     * @param _newQuantity The new quantity of NFTs in stock.
+     */
     function _updateQuantity(uint256 _id, uint256 _newQuantity) private {
-        require(collections[_id].id != 0, collectionNotFound());
         collections[_id].quantityInStock = _newQuantity;
     }
 }
-
