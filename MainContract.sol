@@ -37,14 +37,14 @@ contract ERC721NewCollection is ERC721, ReentrancyGuard {
         address _platformOwner,
         address _mainContract
     ) ERC721(_name, _symbol) {
-        require(_creator != address(0), "Creator cannot be zero address");
+        require(_creator != address(0), Errors.incorrectAddress(true));
         require(
             _platformOwner != address(0),
-            "Marketplace creator cannot be zero address"
+            Errors.incorrectAddress(true)
         );
         require(
             _mainContract != address(0),
-            "Main contract cannot be zero address"
+            Errors.incorrectAddress(true)
         );
 
         creator = _creator;
@@ -58,15 +58,15 @@ contract ERC721NewCollection is ERC721, ReentrancyGuard {
     modifier onlyCreator() {
         require(
             msg.sender == platformOwner || msg.sender == creator,
-            "Only creator can call this function"
+            Errors.onlyCollectionOwner(creator, msg.sender)
         );
         _;
     }
     /// @notice modifier for mainContract address.
     modifier onlyMainContract() {
         require(
-            msg.sender == mainContract,
-            "Only mainContract can call this function"
+            msg.sender == mainContract, 
+            Errors.onlyMainContractError(mainContract, msg.sender)
         );
         _;
     }
@@ -129,7 +129,7 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     mapping(address => uint256) private amountOfCodes;
     /// @notice _user => promoCode
     //!!!change to mapping (address => mapping(uint (collection id) => bytes8[]))
-    mapping(address => bytes8[]) private uniqPromoForUser;
+    mapping(address => bytes8[]) public uniqPromoForUser;
 
     /**
     * @dev Structure containing information about an NFT collection.
@@ -201,7 +201,7 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @param _commission The commission percentage for the platform.
     */
     constructor(address initialOwner, uint256 _commission) Ownable(initialOwner) {
-        require(_commission <= 100, "Commission cannot exceed 100%");
+        require(_commission <= 100 && _commission > 0, Commission(1, 100, _commission));
         commission = _commission;
     }
 
@@ -217,16 +217,16 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @param _quantity The quantity of NFTs to buy.
     */
     function buy(uint256 _id, uint256 _quantity) external payable nonReentrant {
-        require(collections[_id].collectionAddress != address(0), incorrectId());
+        require(collections[_id].collectionAddress != address(0), incorrectId(_id));
 
         // Get price and quantity.
         uint256 price = collections[_id].price;
         uint256 cQuantity = collections[_id].quantityInStock;
-        require(cQuantity >= _quantity, incorrectQuantity());
+        require(cQuantity >= _quantity, notEnoughProductsInStock(cQuantity, _quantity));
 
         // Calculate total price and commission.
         uint256 totalPrice = price * _quantity;
-        require(msg.value >= totalPrice, notEnoughFunds());
+        require(msg.value >= totalPrice, notEnoughFunds(totalPrice, msg.value));
         uint256 fundsForSeller = totalPrice - (totalPrice * commission) / 100;
         uint256 amountOfCommission = totalPrice - fundsForSeller;
 
@@ -273,14 +273,16 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
         // Check input parameters.
         require(
             bytes(_name).length > 0 && bytes(_name).length < MAX_NAME_LENGTH,
-            incorrectNameLength()
+            incorrectNameLength(1, bytes(_name).length)
         );
         require(
             bytes(_symbol).length > 0 && bytes(_symbol).length < MAX_SYMBOL_LENGTH,
-            incorrectSymbolLength()
+            incorrectSymbolLength(1, bytes(_symbol).length)
         );
-        require(bytes(_collectionURI).length > 0, incorrectURI());
-        require(_price > 0, incorrectPrice());
+        require(
+        bytes(_collectionURI).length > 0, 
+        incorrectURI(1, bytes(_collectionURI).length));
+        require(_price > 0, incorrectPrice(1, _price));
 
         // Deploy a new ERC721NewCollection contract.
         ERC721NewCollection collection = new ERC721NewCollection(
@@ -294,7 +296,7 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
         address collectionAddress = address(collection);
 
         
-        require(collectionAddress != address(0), FailedToDeployContract());
+        require(collectionAddress != address(0), FailedToDeployContract(false));
 
         // Save collection info in the collections mapping.
         CollectionInfo memory newCollection = CollectionInfo({
@@ -329,7 +331,7 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @param _promoCode The promo code to redeem.
     */
     function reedemCode (uint256 _id, bytes8 _promoCode) public payable {
-        require(collections[_id].collectionAddress != address(0), incorrectId());
+        require(collections[_id].collectionAddress != address(0), incorrectId(_id));
 
         // Get collection contract.
         address _collectionAddress = getAddressById(_id);
@@ -338,10 +340,10 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
         // Check if mainContract is valid.
         require(
             address(this) == collection.mainContract(),
-            incorrectCollectionAddress()
+            incorrectCollectionAddress(collection.mainContract(), address(this))
         );
         // Check if promo code is valud.
-        require(_isPromoValid(_promoCode) == true, invalidPromoCode());
+        require(_isPromoValid(_promoCode) == true, invalidPromoCode(true));
 
         // Mint the NFT.
         collection.mint(msg.sender);
@@ -364,7 +366,7 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @return The address of the collection contract.
     */
     function getAddressById(uint256 _id) public view returns (address) {
-        require(collections[_id].collectionAddress != address(0), collectionNotFound());
+        require(collections[_id].collectionAddress != address(0), collectionNotFound(false, address(0)));
         return (collections[_id].collectionAddress);
     }
 
@@ -374,7 +376,7 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @return The price of the NFT.
     */
     function getPrice(uint256 _id) public view returns (uint256) {
-        require(collections[_id].collectionAddress != address(0), collectionNotFound());
+        require(collections[_id].collectionAddress != address(0), collectionNotFound(false, address(0)));
         return (collections[_id].price);
     }
 
@@ -384,7 +386,7 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @return The quantity of NFTs in stock.
     */
     function getQuantity(uint256 _id) public view returns (uint256) {
-        require(collections[_id].collectionAddress != address(0), collectionNotFound());
+        require(collections[_id].collectionAddress != address(0), collectionNotFound(false, address(0)));
         return (collections[_id].quantityInStock);
     }
 
@@ -401,10 +403,10 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
         onlyOwner
         returns (bytes8)
     {
-        require(_user != address(0), incorrectAddress());
+        require(_user != address(0), incorrectAddress(true));
         require(
             uniqPromoForUser[_user][_indexOfPromo] != bytes8(0),
-            incorrectIndex()
+            incorrectIndex(false, bytes8(0))
         );
         return (uniqPromoForUser[_user][_indexOfPromo]);
     }
@@ -415,7 +417,7 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
     * @return The address of the collection owner.
     */
     function getOwnerByCollectionId(uint256 _id) public view returns (address) {
-        require(collections[_id].collectionAddress != address(0),collectionNotFound());
+        require(collections[_id].collectionAddress != address(0),collectionNotFound(false, address(0)));
         return collections[_id].collectionOwner;
     }
 
@@ -449,14 +451,14 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
      * @param _promoCode The promo code to delete.
      */
     function _deletePromoCode(address _user, bytes8 _promoCode) internal {
-        require(_user != address(0), incorrectAddress());
+        require(_user != address(0), incorrectAddress(true));
         (uint256 _index, bool status) = _findIndexByUserAddress(
             _user,
             _promoCode
         );
 
         if (!status) {
-            revert promoCodeNotFound();
+            revert promoCodeNotFound(false);
         }
 
         uniqPromoForUser[_user][_index] = uniqPromoForUser[_user][
@@ -483,6 +485,7 @@ contract MainContract is Ownable, Errors, ReentrancyGuard {
      * @return True if the promo code is valid, false otherwise.
      */
     function _isPromoValid(bytes8 _promoCode) internal view returns (bool) {
+        require(_promoCode.length > 0, InvalidPromo(false));
         for (uint256 i = 0; i < uniqPromoForUser[msg.sender].length; i++) {
             if (uniqPromoForUser[msg.sender][i] == _promoCode) {
                 return true;
